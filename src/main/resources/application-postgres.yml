@@ -1,0 +1,11 @@
+# src/main/resources/application-postgres.yml
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:bdbapprovals}
+    username: ${DB_USER:bdb}
+    password: ${DB_PASS:bdb}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true

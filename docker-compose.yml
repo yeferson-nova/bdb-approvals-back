@@ -1,0 +1,50 @@
+# ./docker-compose.yml
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${DB_NAME:-bdbapprovals}
+      POSTGRES_USER: ${DB_USER:-bdb}
+      POSTGRES_PASSWORD: ${DB_PASS:-bdb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-bdb} -d ${DB_NAME:-bdbapprovals}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      args:
+        SKIP_TESTS: "true"
+    image: bdb-approvals-back:local
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: "aad,postgres"
+      # DB (perfil postgres)
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-bdbapprovals}
+      DB_USER: ${DB_USER:-bdb}
+      DB_PASS: ${DB_PASS:-bdb}
+      # AAD
+      AZ_TENANT_ID: ${AZ_TENANT_ID}
+      AZ_API_AUDIENCE: ${AZ_API_AUDIENCE}
+      # AWS / SES
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      SES_FROM: ${SES_FROM}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+
+volumes:
+  pgdata:

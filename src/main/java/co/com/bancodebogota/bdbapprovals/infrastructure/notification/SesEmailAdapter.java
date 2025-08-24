@@ -1,15 +1,19 @@
 package co.com.bancodebogota.bdbapprovals.infrastructure.notification;
 
-import co.com.bancodebogota.bdbapprovals.application.port.out.NotificationPort;
+import co.com.bancodebogota.bdbapprovals.application.port.out.EmailPort;
 import co.com.bancodebogota.bdbapprovals.domain.model.ApprovalRequest;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
 import software.amazon.awssdk.services.sesv2.model.*;
 
 @Component
-public class SesEmailAdapter implements NotificationPort {
+@Lazy
+@Profile("!dev")
+public class SesEmailAdapter implements EmailPort {
 
     private final SesV2Client ses;
     private final String from;

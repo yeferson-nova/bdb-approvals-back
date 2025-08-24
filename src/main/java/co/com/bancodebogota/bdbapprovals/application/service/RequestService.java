@@ -4,6 +4,9 @@ import co.com.bancodebogota.bdbapprovals.application.port.in.*;
 import co.com.bancodebogota.bdbapprovals.application.port.out.*;
 import co.com.bancodebogota.bdbapprovals.domain.exception.DomainException;
 import co.com.bancodebogota.bdbapprovals.domain.model.*;
+import co.com.bancodebogota.bdbapprovals.application.port.out.EmailPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,15 +23,17 @@ public class RequestService implements
 
     private final RequestRepository requestRepo;
     private final ActionRepository actionRepo;
-    private final NotificationPort notifier;
     private final ClockPort clock;
+    private final EmailPort emailAdapter;
+
+    private static final Logger log = LoggerFactory.getLogger(RequestService.class);
 
     public RequestService(RequestRepository requestRepo, ActionRepository actionRepo,
-                          NotificationPort notifier, ClockPort clock) {
+                          ClockPort clock, EmailPort emailAdapter) {
         this.requestRepo = requestRepo;
         this.actionRepo = actionRepo;
-        this.notifier = notifier;
         this.clock = clock;
+        this.emailAdapter = emailAdapter;
     }
 
     @Override
@@ -38,7 +43,12 @@ public class RequestService implements
                 RequestStatus.PENDING, now, now);
         var persisted = requestRepo.save(req);
         actionRepo.save(new ApprovalAction(UUID.randomUUID(), persisted.getId(), requesterUpn, ActionType.CREATE, "created", now));
-        notifier.sendRequestCreated(persisted);
+        try {
+            emailAdapter.sendRequestCreated(persisted);
+        } catch (Exception e) {
+            log.error("Failed to send 'created' notification for request {}. The request was saved. Error: {}",
+                    persisted.getId(), e.getMessage(), e);
+        }
         return persisted;
     }
 
@@ -48,7 +58,12 @@ public class RequestService implements
         var action = req.approve(actorUpn, comment, clock.now());
         var updated = requestRepo.save(req);
         actionRepo.save(action);
-        notifier.sendRequestApproved(updated, comment);
+        try {
+            emailAdapter.sendRequestApproved(updated, comment);
+        } catch (Exception e) {
+            log.error("Failed to send 'approved' notification for request {}. The approval was saved. Error: {}",
+                    id, e.getMessage(), e);
+        }
         return updated;
     }
 
@@ -58,7 +73,12 @@ public class RequestService implements
         var action = req.reject(actorUpn, comment, clock.now());
         var updated = requestRepo.save(req);
         actionRepo.save(action);
-        notifier.sendRequestRejected(updated, comment);
+        try {
+            emailAdapter.sendRequestRejected(updated, comment);
+        } catch (Exception e) {
+            log.error("Failed to send 'rejected' notification for request {}. The rejection was saved. Error: {}",
+                    id, e.getMessage(), e);
+        }
         return updated;
     }
 

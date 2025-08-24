@@ -1,31 +1,41 @@
 server:
   port: 8080
+
 spring:
-  application.name: bdb-approvals-back
-  jackson:
-    default-property-inclusion: non_null
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  datasource:
+    url: ${JDBC_URL}
+    username: ${JDBC_USER}
+    password: ${JDBC_PASS}
   jpa:
+    hibernate:
+      ddl-auto: update
     open-in-view: false
     properties:
-      hibernate:
-        jdbc.time_zone: UTC
-  datasource:
-    url: jdbc:h2:mem:bdbapprovals;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
-    username: sa
-    password: sa
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-management:
-  endpoints.web.exposure.include: health,info,metrics
-  endpoint.health.probes.enabled: true
+      hibernate.jdbc.time_zone: UTC
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OAUTH_ISSUER}
 
 app:
   security:
-    audience: ${AZ_API_AUDIENCE:api://mock}
-  notifications:
-    channel: email
-  email:
-    from: ${SES_FROM:no-reply@example.com}
+    audience: ${OAUTH_AUDIENCE}
+    mock-enabled: ${APP_SECURITY_MOCK_ENABLED:false}
 
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+    allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS}
+    allowed-headers: ${CORS_ALLOWED_HEADERS:Authorization,Content-Type}
 
+ses:
+  region: ${AWS_REGION}
+  from: ${SES_FROM}
+  smtp:
+    host: ${SES_SMTP_HOST}
+    username: ${SES_SMTP_USERNAME}
+    password: ${SES_SMTP_PASSWORD}
