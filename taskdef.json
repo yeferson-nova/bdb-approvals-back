@@ -1,0 +1,43 @@
+{
+  "family": "bdb-approvals-api-td",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::423930895328:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::423930895328:role/bdb-approvals-task-role",
+  "containerDefinitions": [
+    {
+      "name": "bdb-approvals-api",
+      "image": "423930895328.dkr.ecr.us-east-1.amazonaws.com/bdb-approvals-api:v1",
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "SPRING_SECURITY_ISSUER_URI",
+          "value": "https://login.microsoftonline.com/dfb9267a-7a99-404a-a689-24f99e34ef9b/v2.0"
+        },
+        {
+          "name": "AZ_TENANT_ID",
+          "value": "dfb9267a-7a99-404a-a689-24f99e34ef9b"
+        },
+        {
+          "name": "AZ_API_AUDIENCE",
+          "value": "api://63461b28-b43b-4b32-9174-712d545646f2"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-region": "us-east-1",
+          "awslogs-group": "/ecs/bdb-approvals-api",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

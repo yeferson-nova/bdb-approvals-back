@@ -31,3 +31,18 @@ build/
 
 ### VS Code ###
 .vscode/
+.DS_Store
+.env
+new_api.json
+src/.DS_Store
+src/main/.DS_Store
+src/main/java/.DS_Store
+src/main/java/co/com/.DS_Store
+src/.DS_Store
+token.txt
+td_orig.json
+td_patched.json
+*.zip
+sessionmanager-bundle/bin/session-manager-plugin
+/sessionmanager-bundle
+src/.DS_Store

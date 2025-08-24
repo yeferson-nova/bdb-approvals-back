@@ -1,102 +1,194 @@
 package co.com.bancodebogota.bdbapprovals.infrastructure.rest;
 
 import co.com.bancodebogota.bdbapprovals.application.port.in.*;
-import co.com.bancodebogota.bdbapprovals.domain.model.*;
-import co.com.bancodebogota.bdbapprovals.infrastructure.rest.dto.*;
+import co.com.bancodebogota.bdbapprovals.domain.exception.DomainException;
+import co.com.bancodebogota.bdbapprovals.domain.model.ApprovalAction;
+import co.com.bancodebogota.bdbapprovals.domain.model.ApprovalRequest;
+import co.com.bancodebogota.bdbapprovals.domain.model.RequestStatus;
+import co.com.bancodebogota.bdbapprovals.infrastructure.rest.dto.CreateRequestDto;
+import co.com.bancodebogota.bdbapprovals.infrastructure.rest.dto.RequestDetailDto;
+import co.com.bancodebogota.bdbapprovals.infrastructure.rest.dto.RequestSummaryDto;
 import co.com.bancodebogota.bdbapprovals.infrastructure.rest.mapper.RequestRestMapper;
-import co.com.bancodebogota.bdbapprovals.infrastructure.security.SecurityConfig;
-
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.UUID;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/requests")
 public class RequestController {
 
     private final CreateRequestUseCase createUC;
     private final ApproveRequestUseCase approveUC;
     private final RejectRequestUseCase rejectUC;
-    private final CommentRequestUseCase commentUC;
     private final GetRequestQuery getQuery;
     private final ListRequestsQuery listQuery;
     private final GetHistoryQuery historyQuery;
-    private final GetInboxQuery inboxQuery;
     private final RequestRestMapper mapper;
 
-    public RequestController(CreateRequestUseCase createUC, ApproveRequestUseCase approveUC,
-                             RejectRequestUseCase rejectUC, CommentRequestUseCase commentUC,
-                             GetRequestQuery getQuery, ListRequestsQuery listQuery,
-                             GetHistoryQuery historyQuery, GetInboxQuery inboxQuery,
+    @Autowired
+    public RequestController(CreateRequestUseCase createUC,
+                             ApproveRequestUseCase approveUC,
+                             RejectRequestUseCase rejectUC,
+                             GetRequestQuery getQuery,
+                             ListRequestsQuery listQuery,
+                             GetHistoryQuery historyQuery,
                              RequestRestMapper mapper) {
-        this.createUC = createUC; this.approveUC = approveUC; this.rejectUC = rejectUC; this.commentUC = commentUC;
-        this.getQuery = getQuery; this.listQuery = listQuery; this.historyQuery = historyQuery; this.inboxQuery = inboxQuery;
+        this.createUC = createUC;
+        this.approveUC = approveUC;
+        this.rejectUC = rejectUC;
+        this.getQuery = getQuery;
+        this.listQuery = listQuery;
+        this.historyQuery = historyQuery;
         this.mapper = mapper;
     }
 
-    @PostMapping("/requests")
-    public ResponseEntity<RequestSummaryDto> create(@RequestBody CreateRequestDto dto, Authentication auth) {
-        String requesterUpn = SecurityConfig.extractUpn((org.springframework.security.authentication.AbstractAuthenticationToken) auth);
-        var saved = createUC.create(dto.title(), dto.description(), requesterUpn, dto.approverUpn(), dto.type());
-        return ResponseEntity.ok(mapper.toSummary(saved));
+    private String currentUpn(Authentication auth) {
+        if (auth instanceof JwtAuthenticationToken jat) {
+            Map<String, Object> c = jat.getToken().getClaims();
+            Object upn = c.get("upn");
+            if (upn == null) upn = c.get("preferred_username");
+            if (upn == null) upn = c.get("email");
+            if (upn == null) upn = c.get("oid"); // último recurso
+            if (upn != null) return String.valueOf(upn);
+        }
+
+        return (auth != null ? auth.getName() : "unknown");
     }
 
-    @GetMapping("/requests/{id}")
-    public ResponseEntity<RequestSummaryDto> get(@PathVariable UUID id) {
-        return ResponseEntity.ok(mapper.toSummary(getQuery.get(id)));
+    private static String coalesce(String a, String b) {
+        return (a != null && !a.isBlank()) ? a : b;
     }
 
-    @GetMapping("/requests")
+
+
+    @PostMapping
+    public ResponseEntity<RequestDetailDto> create(@RequestBody CreateRequestDto dto,
+                                                   Authentication auth) {
+
+        String requesterUpn = currentUpn(auth);
+
+        ApprovalRequest created = createUC.create(
+                dto.title(),
+                dto.description(),
+                requesterUpn,
+                dto.approverUpn(),
+                dto.type()
+        );
+
+        List<ApprovalAction> history = historyQuery.history(created.getId());
+
+        return ResponseEntity.ok(
+                mapper.toDetail(created, mapper.toActionDtos(history))
+        );
+    }
+
+    @GetMapping
     public ResponseEntity<List<RequestSummaryDto>> list(
             @RequestParam(required = false) RequestStatus status,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String requesterUpn,
             @RequestParam(required = false) String approverUpn,
-            @RequestParam(required = false) String createdFrom, // ISO-8601
-            @RequestParam(required = false) String createdTo,   // ISO-8601
+            @RequestParam(required = false) String createdFrom,
+            @RequestParam(required = false) String createdTo,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        var list = listQuery.list(status, type, requesterUpn, approverUpn, createdFrom, createdTo, page, size).stream()
-                .map(mapper::toSummary).toList();
-        return ResponseEntity.ok(list);
+            @RequestParam(defaultValue = "20") int size,
+            Authentication auth) {
+
+        String effectiveRequester = requesterUpn;
+        String effectiveApprover = approverUpn;
+
+        List<ApprovalRequest> result = listQuery.list(
+                status,
+                type,
+                effectiveRequester,
+                effectiveApprover,
+                createdFrom,
+                createdTo,
+                page,
+                size
+        );
+
+        List<RequestSummaryDto> dto = result.stream()
+                .map(mapper::toSummary)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(dto);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<RequestDetailDto> get(@PathVariable UUID id) {
+        ApprovalRequest req = getQuery.get(id);
+        List<ApprovalAction> history = historyQuery.history(id);
+        return ResponseEntity.ok(
+                mapper.toDetail(req, mapper.toActionDtos(history))
+        );
     }
 
     @GetMapping("/inbox")
-    public ResponseEntity<List<RequestSummaryDto>> inbox(Authentication auth,
-                                                         @RequestParam(defaultValue = "0") int page,
-                                                         @RequestParam(defaultValue = "20") int size) {
-        String approverUpn = SecurityConfig.extractUpn((org.springframework.security.authentication.AbstractAuthenticationToken) auth);
-        var list = inboxQuery.inbox(approverUpn, page, size).stream().map(mapper::toSummary).toList();
-        return ResponseEntity.ok(list);
+    public ResponseEntity<List<RequestSummaryDto>> inbox(@RequestParam(defaultValue = "0") int page,
+                                                         @RequestParam(defaultValue = "20") int size,
+                                                         Authentication auth) {
+        String me = currentUpn(auth);
+        List<ApprovalRequest> result = listQuery.list(
+                null,
+                null,
+                null,
+                me,
+                null, null,
+                page, size
+        );
+        List<RequestSummaryDto> dto = result.stream()
+                .map(mapper::toSummary)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/requests/{id}/approve")
-    public ResponseEntity<RequestSummaryDto> approve(@PathVariable UUID id, @RequestBody(required = false) ActionDto dto,
-                                                     Authentication auth) {
-        String actor = SecurityConfig.extractUpn((org.springframework.security.authentication.AbstractAuthenticationToken) auth);
-        var updated = approveUC.approve(id, actor, dto == null ? null : dto.comment());
-        return ResponseEntity.ok(mapper.toSummary(updated));
-    }
-
-    @PostMapping("/requests/{id}/reject")
-    public ResponseEntity<RequestSummaryDto> reject(@PathVariable UUID id, @RequestBody ActionDto dto,
+    @PostMapping("/{id}/approve")
+    public ResponseEntity<RequestDetailDto> approve(@PathVariable UUID id,
+                                                    @RequestBody(required = false) Map<String, Object> body,
                                                     Authentication auth) {
-        String actor = SecurityConfig.extractUpn((org.springframework.security.authentication.AbstractAuthenticationToken) auth);
-        var updated = rejectUC.reject(id, actor, dto == null ? null : dto.comment());
-        return ResponseEntity.ok(mapper.toSummary(updated));
+        String actorUpn = currentUpn(auth);
+        String comment = extractComment(body);
+
+        ApprovalRequest updated = approveUC.approve(id, actorUpn, comment);
+
+        List<ApprovalAction> history = historyQuery.history(id);
+        return ResponseEntity.ok(
+                mapper.toDetail(updated, mapper.toActionDtos(history))
+        );
     }
 
-    @PostMapping("/requests/{id}/comment")
-    public ResponseEntity<Void> comment(@PathVariable UUID id, @RequestBody ActionDto dto, Authentication auth) {
-        String actor = SecurityConfig.extractUpn((org.springframework.security.authentication.AbstractAuthenticationToken) auth);
-        commentUC.comment(id, actor, dto.comment());
-        return ResponseEntity.accepted().build();
+    @PostMapping("/{id}/reject")
+    public ResponseEntity<RequestDetailDto> reject(@PathVariable UUID id,
+                                                   @RequestBody Map<String, Object> body,
+                                                   Authentication auth) {
+        String actorUpn = currentUpn(auth);
+        String comment = extractComment(body);
+
+        if (comment == null || comment.isBlank()) {
+
+            throw new DomainException("Reject requires a non-empty comment");
+        }
+
+        ApprovalRequest updated = rejectUC.reject(id, actorUpn, comment);
+
+        List<ApprovalAction> history = historyQuery.history(id);
+        return ResponseEntity.ok(
+                mapper.toDetail(updated, mapper.toActionDtos(history))
+        );
     }
 
-    @GetMapping("/requests/{id}/history")
-    public ResponseEntity<List<co.com.bancodebogota.bdbapprovals.domain.model.ApprovalAction>> history(@PathVariable UUID id) {
-        return ResponseEntity.ok(historyQuery.history(id));
+    @SuppressWarnings("unchecked")
+    private String extractComment(Map<String, Object> body) {
+        if (body == null) return null;
+        Object c1 = body.get("comment");
+        if (c1 == null) c1 = body.get("reason");
+        return (c1 != null ? String.valueOf(c1) : null);
     }
 }

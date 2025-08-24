@@ -3,9 +3,10 @@ package co.com.bancodebogota.bdbapprovals.infrastructure.rest.dto;
 import co.com.bancodebogota.bdbapprovals.domain.model.RequestStatus;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
-public record RequestSummaryDto(
+public record RequestDetailDto(
         UUID id,
         String title,
         String requesterUpn,
@@ -13,5 +14,8 @@ public record RequestSummaryDto(
         String type,
         RequestStatus status,
         Instant createdAt,
-        Instant updatedAt
-) {}
+        Instant updatedAt,
+        List<CommentDto> comments
+) {
+    public record CommentDto(String authorUpn, String comment, Instant createdAt) {}
+}
