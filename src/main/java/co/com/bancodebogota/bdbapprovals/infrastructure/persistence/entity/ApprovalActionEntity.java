@@ -18,7 +18,6 @@ public class ApprovalActionEntity {
     private String comment;
     private Instant occurredAt;
 
-    // getters/setters...
     public UUID getId(){return id;} public void setId(UUID id){this.id=id;}
     public UUID getRequestId(){return requestId;} public void setRequestId(UUID v){this.requestId=v;}
     public String getActorUpn(){return actorUpn;} public void setActorUpn(String v){this.actorUpn=v;}

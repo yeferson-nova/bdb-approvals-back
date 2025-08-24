@@ -109,7 +109,6 @@ public class RequestService implements
     @Override
     @Transactional(readOnly = true)
     public List<ApprovalAction> history(UUID id) {
-        // asegura existencia
         requestRepo.findById(id).orElseThrow(() -> new DomainException("Request not found"));
         return actionRepo.findByRequestId(id);
     }

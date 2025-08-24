@@ -21,8 +21,6 @@ public class ApprovalRequestEntity {
     private Instant createdAt;
     private Instant updatedAt;
 
-    // getters/setters
-    // ...
     public UUID getId() { return id; } public void setId(UUID id){this.id=id;}
     public String getTitle(){return title;} public void setTitle(String t){this.title=t;}
     public String getDescription(){return description;} public void setDescription(String d){this.description=d;}

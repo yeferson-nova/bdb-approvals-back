@@ -1,50 +1,58 @@
-# ./docker-compose.yml
-version: "3.9"
-
 services:
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: ${DB_NAME:-bdbapprovals}
-      POSTGRES_USER: ${DB_USER:-bdb}
-      POSTGRES_PASSWORD: ${DB_PASS:-bdb}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-bdb} -d ${DB_NAME:-bdbapprovals}"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  app:
+  bdb-approvals-back:
     build:
       context: .
-      args:
-        SKIP_TESTS: "true"
-    image: bdb-approvals-back:local
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "8080:8080"
+      dockerfile: Dockerfile
+    env_file:
+        - .env
     environment:
-      SPRING_PROFILES_ACTIVE: "aad,postgres"
-      # DB (perfil postgres)
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-bdbapprovals}
-      DB_USER: ${DB_USER:-bdb}
-      DB_PASS: ${DB_PASS:-bdb}
-      # AAD
-      AZ_TENANT_ID: ${AZ_TENANT_ID}
-      AZ_API_AUDIENCE: ${AZ_API_AUDIENCE}
-      # AWS / SES
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      SES_FROM: ${SES_FROM}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      SPRING_PROFILES_ACTIVE: "postgres,aad"
+      SPRING_DATASOURCE_URL: "${JDBC_URL}"
+      SPRING_DATASOURCE_USERNAME: "${JDBC_USER}"
+      SPRING_DATASOURCE_PASSWORD: "${JDBC_PASS}"
+      SPRING_FLYWAY_URL: "${JDBC_URL}"
+      SPRING_FLYWAY_USER: "${JDBC_USER}"
+      SPRING_FLYWAY_PASSWORD: "${JDBC_PASS}"
 
-volumes:
-  pgdata:
+      JDBC_URL: "${JDBC_URL}"
+      JDBC_USER: "${JDBC_USER}"
+      JDBC_PASS: "${JDBC_PASS}"
+
+      APP_EMAIL_FROM: "${SES_FROM}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+
+      AZ_TENANT_ID: "${AZ_TENANT_ID}"
+      API_CLIENT_ID: "${API_CLIENT_ID}"
+      OAUTH_ISSUER: "https://login.microsoftonline.com/${AZ_TENANT_ID}/v2.0"
+      OAUTH_AUDIENCE: "63461b28-b43b-4b32-9174-712d545646f2"
+
+      AWS_REGION: "${AWS_REGION}"
+      SES_FROM: "${SES_FROM}"
+      SES_SMTP_HOST: "email-smtp.${AWS_REGION}.amazonaws.com"
+      SES_SMTP_USERNAME: "${SES_SMTP_USERNAME}"
+      SES_SMTP_PASSWORD: "${SES_SMTP_PASSWORD}"
+      SPRING_MAIL_HOST: "email-smtp.${AWS_REGION}.amazonaws.com"
+      SPRING_MAIL_PORT: "587"
+      SPRING_MAIL_USERNAME: "${SES_SMTP_USERNAME}"
+      SPRING_MAIL_PASSWORD: "${SES_SMTP_PASSWORD}"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "true"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT: "10000"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT: "10000"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT: "10000"
+
+      # Quien firma el correo (lo leerá tu servicio)
+      MAIL_FROM: "${SES_FROM}"
+
+      # (opcional) logs de envío
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_MAIL: "DEBUG"
+      LOGGING_LEVEL_COM_SUN_MAIL: "DEBUG"
+    ports:
+      - "8081:8080"
+    networks:
+      - approvals-net
+
+networks:
+  approvals-net:
+    driver: bridge

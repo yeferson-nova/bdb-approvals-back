@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 @Component
-@Profile("dev") // Se activa solo en el perfil 'dev'
+@Profile("dev")
 public class LogEmailAdapter implements EmailPort {
     private static final Logger log = LoggerFactory.getLogger(LogEmailAdapter.class);
     @Override
