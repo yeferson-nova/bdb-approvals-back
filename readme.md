@@ -2,132 +2,226 @@
 
 Servicio REST para gestionar solicitudes de aprobación genérica dentro del Banco de Bogotá. Está construido con Spring Boot 3 (Java 21), protegido con OAuth2/JWT (Azure AD), persiste en PostgreSQL (RDS) y se despliega en AWS ECS Fargate.
 
-## Objetivo
+## ¿Qué hace esta API?
 
-Exponer un backend simple, consistente y seguro para crear, consultar y resolver solicitudes de aprobación con trazabilidad (comentarios, estado, auditoría básica).
+Esta API expone un sistema para crear, consultar y gestionar flujos de aprobación. El ciclo de vida básico es:
 
-## Arquitectura (vista rápida)
+1.  Un **solicitante** crea una petición y se la asigna a un **aprobador**.
+2.  El **aprobador** recibe la petición en su "bandeja de entrada" (inbox).
+3.  El **aprobador** puede aprobar o rechazar la solicitud, añadiendo comentarios.
+4.  Todo el proceso queda registrado en un historial de auditoría.
 
--   **Aplicación**: Spring Boot 3.3.x, Tomcat embebido (HTTP :8080), perfiles `postgres` + `aad`.
--   **Seguridad**: Resource Server OAuth2 con Azure AD v2.0.
-    -   Validación por `issuer-uri` y `audience` (claim `aud`) específica del API.
--   **Base de datos**: PostgreSQL (AWS RDS). Migraciones con Flyway (idempotentes).
--   **Despliegue**: AWS ECS Fargate (awsvpc), 1–N réplicas, logs en CloudWatch Logs.
--   **Conectividad operativa**: Acceso puntual vía AWS SSM Port Forwarding (bastión) para pruebas internas.
--   **Observabilidad**: `/actuator/health`, logs estructurados (nivel INFO/ERROR).
+## Inicio Rápido
 
+Sigue estos 3 pasos para interactuar con la API.
+
+### Paso 1: Obtener un Token de Acceso
+
+La API está protegida. Necesitas un `access_token` de Azure AD para hacer cualquier llamada.
+
+> **Nota**: El siguiente script requiere la herramienta `jq` para procesar la respuesta JSON.
+
+```sh
+# Completa estas variables con las credenciales del App Registration en Azure AD
+TENANT_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+CLIENT_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+CLIENT_SECRET="<secreto>"
+API_SCOPE="api://<GUID-DEL-API>/.default"
+
+# Ejecuta este comando para obtener el token
+TOKEN=$( \
+  curl -s -X POST "https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    --data-urlencode "client_id=${CLIENT_ID}" \
+    --data-urlencode "client_secret=${CLIENT_SECRET}" \
+    --data-urlencode "scope=${API_SCOPE}" \
+    --data-urlencode "grant_type=client_credentials" \
+  | jq -r .access_token
+)
+
+echo "TOKEN: ${TOKEN:0:20}..."
 ```
-[Cliente/Bots] --OAuth2--> [Azure AD] --JWT-->
-[bdb-approvals-api] --JPA--> [PostgreSQL RDS]
-      |
-      +--> [CloudWatch Logs]
 
-(despliegue en ECS Fargate; acceso operativo por SSM port-forward)
+> **⚠️ Error común**: Si el backend responde `401 invalid_token` con el error “The aud claim is not valid”, verifica que la variable de entorno `OAUTH_AUDIENCE` en el backend sea **SOLO** el GUID del API (sin el prefijo `api://`).
+
+### Paso 2: Configurar el Entorno
+
+Exporta las siguientes variables para simplificar los ejemplos.
+
+```sh
+# El token que obtuviste en el paso anterior
+export TOKEN="..."
+
+# Host y puerto del API (local o remoto vía túnel SSM)
+export BASE="http://127.0.0.1:8081" 
+
+# (Opcional) alias para jq para formatear la salida JSON
+export JQ="jq ."
 ```
 
-## Modelo de dominio (simplificado)
+### Paso 3: ¡Probar la API!
 
-### Request
+Ahora puedes hacer llamadas a los endpoints. Por ejemplo, para ver tu bandeja de entrada de aprobaciones:
 
--   `id` (UUID)
--   `title` (string)
--   `description` (string)
--   `type` (enum: `GENERAL`, …)
--   `status` (enum: `PENDING` | `APPROVED` | `REJECTED`)
--   `requesterUpn` (UPN/ID del solicitante tomado del token)
--   `approverUpn` (UPN del aprobador)
--   `createdAt` / `updatedAt` (Instant)
--   `comments[]` → `{ authorUpn, comment, createdAt }`
+```sh
+# GET /api/requests/inbox  => Devuelve un array con tus aprobaciones pendientes
+curl -s \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Accept: application/json" \
+  "${BASE}/api/requests/inbox" | $JQ
+```
 
-### Transiciones
-
--   `PENDING` → `APPROVED` (endpoint de `approve`)
--   `PENDING` → `REJECTED` (endpoint de `reject`)
-
-## Endpoints principales
+## Endpoints de la API
 
 -   **Prefijo**: `/api`
 -   **Autenticación**: `Bearer JWT` (Azure AD).
 -   **Content-Type**: `application/json`.
 
-| Método | Ruta | Descripción | Códigos |
+| Método | Ruta | Descripción | Códigos Comunes |
 | :--- | :--- | :--- | :--- |
-| GET | `/requests/inbox` | Bandeja para el aprobador autenticado | 200 |
-| GET | `/requests/outbox` | Solicitudes creadas por el solicitante | 200 |
-| GET | `/requests/{id}` | Detalle de una solicitud | 200 / 404 |
-| POST | `/requests` | Crear nueva solicitud | 201 |
-| POST | `/requests/{id}/approve` | Aprobar (opcional: `{"comment": "..."}`) | 200 / 409 |
-| POST | `/requests/{id}/reject` | Rechazar (requiere: `{"comment": "..."}`) | 200 / 409 |
-| GET | `/actuator/health` | Health check (sin auth si se habilita así) | 200 |
+| GET | `/requests/inbox` | Bandeja de entrada del aprobador autenticado. | 200 |
+| GET | `/requests/outbox` | Solicitudes creadas por el usuario autenticado. | 200 |
+| GET | `/requests/{id}` | Detalle de una solicitud específica. | 200, 404 |
+| GET | `/requests/{id}/history` | Historial de acciones de una solicitud. | 200 |
+| POST | `/requests` | Crear una nueva solicitud de aprobación. | 201 |
+| POST | `/requests/{id}/approve` | Aprobar una solicitud pendiente. | 200, 409 |
+| POST | `/requests/{id}/reject` | Rechazar una solicitud pendiente. | 200, 409 |
+| POST | `/requests/{id}/comments` | Añadir un comentario a una solicitud. | 201 |
+| DELETE | `/requests/{id}` | Eliminar una solicitud (rol de admin). | 204 |
+| GET | `/actuator/health` | Health check del servicio. | 200 |
 
-## Ejemplos
+## Ejemplos de Uso (cURL)
 
-### Crear
+A continuación se muestra un flujo de trabajo completo.
 
-```sh
-curl -s -X POST http://HOST:8080/api/requests \
--H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
--d '{
-"title":"Demo",
-"description":"prueba",
-"approverUpn":"aprobador@empresa.com",
-"type":"GENERAL"
-}'
-```
-
-### Aprobar
+### 1. Crear una Solicitud
 
 ```sh
-curl -s -X POST http://HOST:8080/api/requests/<id>/approve \
--H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
--d '{"comment":"aprobado"}'
+# POST /api/requests  => 201 { id, ... }
+curl -sS -o /tmp/create.json -w "HTTP %{http_code}\n" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -X POST "${BASE}/api/requests" \
+  -d '{
+        "title":"Demo desde Fargate",
+        "description":"Probando túnel SSM",
+        "approverUpn":"aprobador@ynova.onmicrosoft.com",
+        "type":"GENERAL"
+      }'
+
+# Guarda el ID para los siguientes pasos
+REQ_ID=$(jq -r .id /tmp/create.json)
+echo "REQ_ID=${REQ_ID}"
 ```
 
-> **Nota**: para aprobar/rechazar, el token debe pertenecer al aprobador (`approverUpn`). Un token “de aplicación” (client credentials) sirve para flujos técnicos, pero no sustituye la identidad del aprobador humano.
-
-## Seguridad (Azure AD)
-
-La API actúa como **Resource Server**. Se configuraron:
-
--   `issuer-uri`: `https://login.microsoftonline.com/<TENANT_ID>/v2.0`
--   `audiences`: GUID del API (sin el prefijo `api://`)
-
-Importante: en `application.yml` usamos:
-
-```yaml
-spring:
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: ${OAUTH_ISSUER}
-          audiences: ${OAUTH_AUDIENCE} # GUID sin prefijo
-```
-
-### Obtener un token (client credentials)
+### 2. Consultar la Solicitud por ID
 
 ```sh
-TENANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-CLIENT_SECRET='<secreto>'
-API_AUDIENCE='api://<GUID-DEL-API>'
-
-curl -s -X POST "https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token" \
--H "Content-Type: application/x-www-form-urlencoded" \
---data-urlencode "client_id=${CLIENT_ID}" \
---data-urlencode "client_secret=${CLIENT_SECRET}" \
---data-urlencode "scope=${API_AUDIENCE}/.default" \
---data-urlencode "grant_type=client_credentials"
+curl -s \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Accept: application/json" \
+  "${BASE}/api/requests/${REQ_ID}" | $JQ
 ```
 
-> **Pitfall común**: si el backend responde `401 invalid_token` y menciona “The aud claim is not valid”, verifique que la env var `OAUTH_AUDIENCE` sea **SOLO** el GUID del API (sin el prefijo `api://`).
+### 3. Aprobar o Rechazar
 
-## Configuración & variables
-
-La aplicación lee variables de entorno (ejemplo de `.env`/ECS):
+El aprobador (`aprobador@ynova.onmicrosoft.com` en este ejemplo) debe usar su propio token para estas acciones.
 
 ```sh
-# Spring Profiles
+# Aprobar (con un comentario opcional)
+curl -sS -w "HTTP %{http_code}\n" \
+  -H "Authorization: Bearer ${TOKEN_APROBADOR}" \
+  -H "Content-Type: application/json" \
+  -X POST "${BASE}/api/requests/${REQ_ID}/approve" \
+  -d '{"comment": "Aprobado por pruebas"}'
+
+# Rechazar (con un comentario obligatorio)
+curl -sS -w "HTTP %{http_code}\n" \
+  -H "Authorization: Bearer ${TOKEN_APROBADOR}" \
+  -H "Content-Type: application/json" \
+  -X POST "${BASE}/api/requests/${REQ_ID}/reject" \
+  -d '{"comment": "Rechazado por pruebas"}'
+```
+
+### 4. Añadir Comentarios
+
+```sh
+curl -sS -w "HTTP %{http_code}\n" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -X POST "${BASE}/api/requests/${REQ_ID}/comments" \
+  -d '{"comment":"Comentario de prueba"}'
+```
+
+### 5. Consultar el Historial
+
+```sh
+curl -s \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Accept: application/json" \
+  "${BASE}/api/requests/${REQ_ID}/history" | $JQ
+```
+
+### 6. Eliminar la Solicitud
+
+```sh
+# Solo permitido para roles específicos
+curl -i \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -X DELETE "${BASE}/api/requests/${REQ_ID}"
+```
+
+## Arquitectura y Despliegue (AWS)
+
+-   **Aplicación**: Spring Boot 3.3.x, Tomcat embebido (HTTP :8080), perfiles `postgres` + `aad`.
+-   **Base de datos**: PostgreSQL (AWS RDS). Migraciones con Flyway.
+-   **Despliegue**: AWS ECS Fargate (`awsvpc`), 1–N réplicas, logs en CloudWatch.
+-   **Observabilidad**: `/actuator/health`, logs estructurados.
+
+```mermaid
+sequenceDiagram
+    participant DEV as Cliente (Laptop/curl)
+    participant AAD as Azure AD
+    participant ECS as Backend (AWS Fargate)
+    participant RDS as Base de Datos (AWS RDS)
+    participant CW as Logs (AWS CloudWatch)
+
+    DEV->>+AAD: 1. Pide token (Client Credentials)
+    AAD-->>-DEV: 2. Devuelve access_token (JWT)
+
+    DEV->>+ECS: 3. Llama a la API (con Bearer token)
+    ECS->>+AAD: 4. Valida el token JWT
+    AAD-->>-ECS: Validación OK
+    ECS->>+RDS: 5. Lee o escribe en la base de datos
+    RDS-->>-ECS: Resultado de la operación
+    ECS->>CW: 6. Envía logs de la transacción
+    ECS-->>-DEV: Devuelve la respuesta de la API
+```
+
+## Autenticación y Seguridad (Azure AD)
+
+La API actúa como **Resource Server** y valida tokens JWT emitidos por un Tenant de Azure AD.
+
+-   **Issuer configurado en backend**:
+    -   `OAUTH_ISSUER=https://login.microsoftonline.com/${TENANT_ID}/v2.0`
+-   **Audience esperado por el backend**:
+    -   `OAUTH_AUDIENCE=${API_AUDIENCE_ID}` (solo el GUID, sin `api://`).
+-   **Scope para pedir el token**:
+    -   `scope=api://${API_AUDIENCE_ID}/.default`
+
+La API soporta dos flujos de autenticación:
+
+1.  **Flujo Client Credentials (Servicio a Servicio)**: Usado por clientes automatizados. El token representa a la aplicación cliente, no a un usuario.
+2.  **Flujo de Código de Autorización + PKCE (para UI/SPA)**: Flujo estándar para aplicaciones de usuario final (React, Angular, etc.). El token representa al usuario que ha iniciado sesión.
+
+## Configuración y Desarrollo
+
+### Variables de Entorno
+
+La aplicación se configura con las siguientes variables de entorno:
+
+```sh
+# Perfiles de Spring
 SPRING_PROFILES_ACTIVE=postgres,aad
 
 # Base de datos
@@ -141,96 +235,45 @@ OAUTH_AUDIENCE=<GUID-DEL-API> # sin api://
 
 # CORS
 CORS_ALLOWED_HEADERS=Authorization,Content-Type
-
-# (Opcional) correo saliente
-SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH=true
-SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT=10000
-SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT=10000
 ```
 
-**Persistencia**: Flyway migra el esquema al iniciar. Versionado inicial `V1__*.sql`.
+### Ejecución Local
 
-## Ejecución local
-
-**Requisitos**: Java 21, Maven/Gradle, acceso a PostgreSQL y credenciales AAD.
+**Requisitos**: Java 21, Maven/Gradle, acceso a PostgreSQL y credenciales de Azure AD.
 
 ```sh
-# 1) Exportar variables (ver sección anterior)
+# 1. Exporta las variables de entorno
 export SPRING_PROFILES_ACTIVE=postgres,aad
-# ... exportar el resto de variables
+# ...y el resto de variables
 
-# 2) Build & run (Maven)
+# 2. Construye y ejecuta
 ./mvnw clean package
 java -jar target/*-SNAPSHOT.jar
-
-# o si ya tienes el JAR empacado:
-java -jar app.jar
 ```
 
--   **Puerto por defecto**: `8080`
--   **Health**: `GET /actuator/health`
+### Acceso para Pruebas en AWS (Túnel SSM)
 
-## Despliegue en AWS (resumen)
-
--   **ECS Fargate**
-    -   **Cluster**: `bdb-approvals`
-    -   **Service**: `bdb-approvals-svc`
-    -   **Task Definition**: `bdb-approvals-api-td`
-    -   **Network Mode**: `awsvpc` (subnets privadas/públicas según ambiente)
-    -   **Logs**: CloudWatch → `/ecs/bdb-approvals-api` (`ecs/<container>/<taskId>`)
--   **RDS PostgreSQL** (seguridad por SG/VPC).
--   **Azure AD** como IdP (issuer & audience via env vars).
-
-### Acceso operativo (túnel SSM)
-
-Para pruebas internas sin exponer puertos:
+Para probar la API en AWS sin exponerla a internet, se usa un túnel a través de AWS Systems Manager.
 
 ```sh
-# 1) Obtener IP privada del task
-TASK_ARN=$(aws ecs list-tasks --cluster bdb-approvals --service-name bdb-approvals-svc \
---desired-status RUNNING --query 'taskArns[-1]' --output text)
+# 1. Obtener la IP privada del task de ECS
+TASK_IP=$(...) # Script para obtener la IP
 
-TASK_IP=$(aws ecs describe-tasks --cluster bdb-approvals --tasks "$TASK_ARN" \
---query "tasks[0].containers[?name=='bdb-approvals-api'].networkInterfaces[0].privateIpv4Address | [0]" \
---output text)
-
-# 2) Abrir túnel 127.0.0.1:8081 -> TASK_IP:8080 a través del bastión (SSM)
+# 2. Abrir el túnel: 127.0.0.1:8081 -> TASK_IP:8080
 aws ssm start-session \
---target <instance-id-bastion> \
+--target <instance-id-del-bastion> \
 --document-name AWS-StartPortForwardingSessionToRemoteHost \
 --parameters "host=${TASK_IP},portNumber=8080,localPortNumber=8081"
 
-# 3) Probar API
-curl -i -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8081/api/requests/inbox
+# 3. Ahora puedes usar http://127.0.0.1:8081 como BASE
 ```
 
-## Logs & Observabilidad
+## Roadmap (Sugerencias)
 
--   **CloudWatch Logs**: `/ecs/bdb-approvals-api`
-    -   **Formato**: `ecs/<containerName>/<taskId>`
--   **Actuator**: `/actuator/health` (viva/ready según configuración).
--   **Métricas/trazas**: se pueden habilitar (Micrometer/OpenTelemetry) si el banco lo requiere.
+-   [ ] **Autorización Fina**: Implementar validación de roles de Azure AD.
+-   [ ] **Paginación y Filtrado**: Añadir paginación a los endpoints de listado.
+-   [ ] **Gestión de Secretos**: Migrar secretos a AWS Secrets Manager.
+-   [ ] **Notificaciones**: Integrar notificaciones por correo.
 
-## Estándares de calidad
-
--   Java 21, Spring Boot 3.x, Hibernate 6.x.
--   Validación de parámetros y códigos HTTP consistentes.
--   Migraciones versionadas con Flyway (0-downtime friendly).
--   Seguridad “secure by default”: sólo `Authorization` y `Content-Type` en CORS.
--   Contenedor inmutable; configuración por env vars.
-
-## Roadmap (sugerido)
-
--   [ ] Roles/claims finos (autorización por App Roles/Groups AAD).
--   [ ] Paginación/filtrado en inbox/outbox.
--   [ ] Notificaciones de correo configurables por ambiente.
--   [ ] Observabilidad ampliada (tracing, métricas de negocio).
-
-## Licencia & contacto
-
--   **Licencia**: según lineamientos internos del Banco de Bogotá.
--   **Contacto técnico**: Equipo de Arquitectura / Plataforma Digital.
-
-## TL;DR
-
-API de aprobaciones lista para producción: segura (AAD), portable (Docker/ECS), con persistencia (RDS/Flyway) y endpoints claros para crear, listar y resolver solicitudes. Se conecta vía JWT Bearer; en AWS se opera con port-forward SSM para pruebas internas.
+---
+*Contacto técnico: ynova1@bancodebogota.com.co.*
