@@ -21,6 +21,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+import static org.springframework.security.config.Customizer.withDefaults;
+
 @Configuration
 public class SecurityConfig {
 
@@ -43,7 +45,7 @@ public class SecurityConfig {
         if (mockEnabled) {
             http.addFilterBefore(new MockAuthFilter(), org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class);
         } else {
-            http.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
+            http.oauth2ResourceServer(oauth2 -> oauth2.jwt(withDefaults()));
         }
         return http.build();
     }
@@ -73,5 +75,16 @@ public class SecurityConfig {
             return v != null ? v.toString() : jwt.getName();
         }
         return authentication.getName();
+    }
+    @Bean
+    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http.csrf(csrf -> csrf.disable());
+        http.authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
+                .requestMatchers("/api/**").authenticated()
+                .anyRequest().denyAll()
+        );
+        http.oauth2ResourceServer(oauth2 -> oauth2.jwt(withDefaults()));
+        return http.build();
     }
 }

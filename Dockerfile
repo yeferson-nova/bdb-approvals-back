@@ -1,16 +1,20 @@
+# Etapa 1: compila el JAR dentro del contenedor (no dependes de target/ local)
+FROM eclipse-temurin:21-jdk-jammy AS build
+WORKDIR /src
 
-FROM maven:3.9.9-eclipse-temurin-21 AS build
+# Copia wrapper y POM primero para cachear dependencias
+COPY mvnw pom.xml ./
+COPY .mvn .mvn
+RUN chmod +x mvnw
+RUN ./mvnw -q -DskipTests dependency:go-offline
+
+# Copia el código fuente y construye
+COPY src src
+RUN ./mvnw -q -DskipTests package
+
+# Etapa 2: runtime liviano
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
-COPY pom.xml .
-COPY src ./src
-RUN mvn -B -DskipTests clean package
-
-
-FROM eclipse-temurin:21-jre
-WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
-
+COPY --from=build /src/target/*.jar app.jar
 EXPOSE 8080
-
-ENV JAVA_OPTS=""
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+ENTRYPOINT ["java","-jar","app.jar"]

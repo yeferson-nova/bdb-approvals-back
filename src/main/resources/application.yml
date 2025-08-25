@@ -23,6 +23,7 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: ${OAUTH_ISSUER}
+          audiences: ${OAUTH_AUDIENCE}
 
 app:
   security:
@@ -41,3 +42,6 @@ ses:
     host: ${SES_SMTP_HOST}
     username: ${SES_SMTP_USERNAME}
     password: ${SES_SMTP_PASSWORD}
+bdb:
+  cors:
+    origins: "http://localhost:4200"

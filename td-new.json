@@ -1,0 +1,176 @@
+{
+  "containerDefinitions": [
+    {
+      "name": "bdb-approvals-api",
+      "image": "423930895328.dkr.ecr.us-east-1.amazonaws.com/bdb-approvals-api:e2a7532",
+      "cpu": 0,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "SPRING_DATASOURCE_URL",
+          "value": "jdbc:postgresql://approvals-db-dev.c4xcsqgwmi4u.us-east-1.rds.amazonaws.com:5432/postgres"
+        },
+        {
+          "name": "CORS_ALLOWED_HEADERS",
+          "value": "Authorization,Content-Type"
+        },
+        {
+          "name": "SPRING_PROFILES_ACTIVE",
+          "value": "postgres,aad"
+        },
+        {
+          "name": "SPRING_DATASOURCE_USERNAME",
+          "value": "approvals_user"
+        },
+        {
+          "name": "OAUTH_ISSUER",
+          "value": "https://login.microsoftonline.com/dfb9267a-7a99-404a-a689-24f99e34ef9b/v2.0"
+        },
+        {
+          "name": "SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH",
+          "value": "true"
+        },
+        {
+          "name": "SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT",
+          "value": "10000"
+        },
+        {
+          "name": "SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT",
+          "value": "10000"
+        },
+        {
+          "name": "OAUTH_AUDIENCE",
+          "value": "api://63461b28-b43b-4b32-9174-712d545646f2"
+        },
+        {
+          "name": "SPRING_FLYWAY_PASSWORD",
+          "value": "bdbPassword25*"
+        },
+        {
+          "name": "SPRING_MAIL_PORT",
+          "value": "587"
+        },
+        {
+          "name": "CORS_ALLOWED_ORIGINS",
+          "value": "http://localhost:4200,https://tu-frontend.dominio"
+        },
+        {
+          "name": "AWS_REGION",
+          "value": "us-east-1"
+        },
+        {
+          "name": "JDBC_USER",
+          "value": "approvals_user"
+        },
+        {
+          "name": "SES_FROM",
+          "value": "bdb-approvals@ynova.onmicrosoft.com"
+        },
+        {
+          "name": "AZ_TENANT_ID",
+          "value": "dfb9267a-7a99-404a-a689-24f99e34ef9b"
+        },
+        {
+          "name": "SES_SMTP_HOST",
+          "value": "email-smtp.us-east-1.amazonaws.com"
+        },
+        {
+          "name": "AZ_API_AUDIENCE",
+          "value": "api://63461b28-b43b-4b32-9174-712d545646f2"
+        },
+        {
+          "name": "CORS_ALLOWED_METHODS",
+          "value": "GET,POST,PUT,DELETE,OPTIONS"
+        },
+        {
+          "name": "SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE",
+          "value": "true"
+        },
+        {
+          "name": "JDBC_URL",
+          "value": "jdbc:postgresql://approvals-db-dev.c4xcsqgwmi4u.us-east-1.rds.amazonaws.com:5432/postgres"
+        },
+        {
+          "name": "SPRING_SECURITY_ISSUER_URI",
+          "value": "https://login.microsoftonline.com/dfb9267a-7a99-404a-a689-24f99e34ef9b/v2.0"
+        },
+        {
+          "name": "SPRING_FLYWAY_URL",
+          "value": "jdbc:postgresql://approvals-db-dev.c4xcsqgwmi4u.us-east-1.rds.amazonaws.com:5432/postgres"
+        },
+        {
+          "name": "SPRING_MAIL_HOST",
+          "value": "email-smtp.us-east-1.amazonaws.com"
+        },
+        {
+          "name": "SPRING_FLYWAY_USER",
+          "value": "approvals_user"
+        },
+        {
+          "name": "SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT",
+          "value": "10000"
+        }
+      ],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "secrets": [
+        {
+          "name": "SPRING_DATASOURCE_PASSWORD",
+          "valueFrom": "/bdb/approvals/DB_PASSWORD"
+        },
+        {
+          "name": "JDBC_PASS",
+          "valueFrom": "/bdb/approvals/JDBC_PASS"
+        },
+        {
+          "name": "SPRING_MAIL_USERNAME",
+          "valueFrom": "/bdb/approvals/SMTP_USERNAME"
+        },
+        {
+          "name": "SPRING_MAIL_PASSWORD",
+          "valueFrom": "/bdb/approvals/SMTP_PASSWORD"
+        },
+        {
+          "name": "SES_SMTP_USERNAME",
+          "valueFrom": "/bdb/approvals/SMTP_USERNAME"
+        },
+        {
+          "name": "SES_SMTP_PASSWORD",
+          "valueFrom": "/bdb/approvals/SMTP_PASSWORD"
+        },
+        {
+          "name": "AWS_ACCESS_KEY_ID",
+          "valueFrom": "/bdb/approvals/AWS_ACCESS_KEY_ID"
+        },
+        {
+          "name": "AWS_SECRET_ACCESS_KEY",
+          "valueFrom": "/bdb/approvals/AWS_SECRET_ACCESS_KEY"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/bdb-approvals-api",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "systemControls": []
+    }
+  ],
+  "family": "bdb-approvals-api-td",
+  "taskRoleArn": "arn:aws:iam::423930895328:role/bdb-approvals-task-role",
+  "executionRoleArn": "arn:aws:iam::423930895328:role/ecsTaskExecutionRole",
+  "networkMode": "awsvpc",
+  "volumes": [],
+  "placementConstraints": [],
+  "cpu": "512",
+  "memory": "1024"
+}
