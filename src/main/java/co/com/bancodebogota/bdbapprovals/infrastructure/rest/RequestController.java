@@ -90,11 +90,7 @@ public class RequestController {
                 size
         );
 
-        List<RequestSummaryDto> dto = result.stream()
-                .map(mapper::toSummary)
-                .collect(Collectors.toList());
-
-        return ResponseEntity.ok(dto);
+        return ResponseEntity.ok(mapToSummaryDtos(result));
     }
 
     @GetMapping("/{id}")
@@ -118,10 +114,22 @@ public class RequestController {
                 null, null,
                 page, size
         );
-        List<RequestSummaryDto> dto = result.stream()
-                .map(mapper::toSummary)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(dto);
+        return ResponseEntity.ok(mapToSummaryDtos(result));
+    }
+
+    @GetMapping("/outbox")
+    public ResponseEntity<List<RequestSummaryDto>> outbox(@RequestParam(defaultValue = "0") int page,
+                                                          @RequestParam(defaultValue = "20") int size,
+                                                          @CurrentUserParam CurrentUserDto me) {
+        List<ApprovalRequest> result = listQuery.list(
+                null,
+                null,
+                me.upn(),      // 🔒 bandeja del solicitante logueado
+                null,
+                null, null,
+                page, size
+        );
+        return ResponseEntity.ok(mapToSummaryDtos(result));
     }
 
     @PostMapping("/{id}/approve")
@@ -132,10 +140,7 @@ public class RequestController {
 
         ApprovalRequest updated = approveUC.approve(id, me.upn(), comment);
 
-        List<ApprovalAction> history = historyQuery.history(id);
-        return ResponseEntity.ok(
-                mapper.toDetail(updated, mapper.toActionDtos(history))
-        );
+        return buildDetailResponse(updated);
     }
 
     @PostMapping("/{id}/reject")
@@ -150,10 +155,7 @@ public class RequestController {
 
         ApprovalRequest updated = rejectUC.reject(id, me.upn(), comment);
 
-        List<ApprovalAction> history = historyQuery.history(id);
-        return ResponseEntity.ok(
-                mapper.toDetail(updated, mapper.toActionDtos(history))
-        );
+        return buildDetailResponse(updated);
     }
 
 
@@ -162,5 +164,17 @@ public class RequestController {
         return Optional.ofNullable(body.comment())
                 .filter(s -> !s.isBlank())
                 .orElse(null);
+    }
+
+    private ResponseEntity<RequestDetailDto> buildDetailResponse(ApprovalRequest request) {
+        List<ApprovalAction> history = historyQuery.history(request.getId());
+        RequestDetailDto dto = mapper.toDetail(request, mapper.toActionDtos(history));
+        return ResponseEntity.ok(dto);
+    }
+
+    private List<RequestSummaryDto> mapToSummaryDtos(List<ApprovalRequest> requests) {
+        return requests.stream()
+                .map(mapper::toSummary)
+                .collect(Collectors.toList());
     }
 }
